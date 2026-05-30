@@ -1,6 +1,6 @@
-// Generates a clean flat/vector app icon: a white magnifying glass on a
-// blue->cyan gradient squircle. Rendered with 4x supersampled anti-aliasing
-// straight to PNG (hand-rolled encoder, no image libs) so edges are smooth.
+// Generates a clean flat/vector app icon: a cute Poro on a blue->cyan gradient
+// squircle. Rendered with 4x supersampled anti-aliasing straight to PNG
+// (hand-rolled encoder, no image libs) so edges are smooth.
 // Writes scripts/app-icon.png (1024) and static/favicon.png (128).
 const fs = require("fs");
 const path = require("path");
@@ -12,13 +12,19 @@ const S = 1024; // scene units
 const GRAD_A = [74, 124, 247]; // blue (top-left)
 const GRAD_B = [56, 201, 240]; // cyan (bottom-right)
 const WHITE = [255, 255, 255];
+const BODY_SHADE = [228, 236, 248];
+const OUTLINE = [120, 162, 214];
+const HORN = [226, 182, 120];
+const EYE = [40, 50, 78];
+const BLUSH = [255, 150, 180];
+const MOUTH = [112, 64, 80];
+const TONGUE = [255, 138, 160];
 
 const mix = (a, b, t) => [
   a[0] + (b[0] - a[0]) * t,
   a[1] + (b[1] - a[1]) * t,
   a[2] + (b[2] - a[2]) * t,
 ];
-
 function over(dst, src) {
   const sa = src[3] / 255,
     da = dst[3] / 255;
@@ -31,8 +37,13 @@ function over(dst, src) {
     oa * 255,
   ];
 }
-
-// signed distance to a rounded rectangle centred in the canvas
+const dist = (x, y, a, b) => Math.hypot(x - a, y - b);
+// normalized superellipse radius (<1 inside)
+function se(x, y, cx, cy, rx, ry, n) {
+  return (
+    Math.pow(Math.abs((x - cx) / rx), n) + Math.pow(Math.abs((y - cy) / ry), n)
+  );
+}
 function roundRect(x, y, half, r) {
   const qx = Math.abs(x - S / 2) - (half - r);
   const qy = Math.abs(y - S / 2) - (half - r);
@@ -41,53 +52,56 @@ function roundRect(x, y, half, r) {
   return Math.hypot(ax, ay) + Math.min(Math.max(qx, qy), 0) - r;
 }
 
-function segDist(px, py, ax, ay, bx, by) {
-  const dx = bx - ax,
-    dy = by - ay,
-    l2 = dx * dx + dy * dy;
-  let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-}
-
-// magnifier geometry
-const LCX = 430,
-  LCY = 412,
-  R_OUT = 236,
-  R_IN = 150;
-const HAX = LCX + R_OUT * 0.707,
-  HAY = LCY + R_OUT * 0.707;
-const HBX = 824,
-  HBY = 806,
-  HW = 60;
+// geometry
+const BCX = 512,
+  BCY = 552,
+  BRX = 270,
+  BRY = 298,
+  BN = 2.3;
+const EYES = [430, 594];
+const EY = 540;
 
 function scene(x, y) {
   let col = [0, 0, 0, 0];
 
-  // squircle background with diagonal gradient
+  // squircle background, diagonal gradient
   if (roundRect(x, y, S / 2, 232) < 0) {
-    const t = (x + y) / (2 * S);
-    col = mix(GRAD_A, GRAD_B, t).concat(255);
+    col = mix(GRAD_A, GRAD_B, (x + y) / (2 * S)).concat(255);
   }
 
-  const d = Math.hypot(x - LCX, y - LCY);
-
-  // glass: faint white fill so the lens reads as glass over the gradient
-  if (d < R_IN) col = over(col, [255, 255, 255, 50]);
-
-  // ring (white)
-  if (d >= R_IN && d <= R_OUT) col = [255, 255, 255, 255];
-
-  // handle (white capsule)
-  if (segDist(x, y, HAX, HAY, HBX, HBY) < HW) col = [255, 255, 255, 255];
-
-  // shine streaks inside the glass (upper-left)
-  if (d < R_IN - 8) {
-    if (segDist(x, y, 352, 352, 408, 408) < 22)
-      col = over(col, [255, 255, 255, 210]);
-    if (segDist(x, y, 350, 420, 372, 442) < 11)
-      col = over(col, [255, 255, 255, 210]);
+  // horn tufts (behind body; tips peek above)
+  if (se(x, y, 448, 236, 40, 60, 2) < 1 || se(x, y, 576, 236, 40, 60, 2) < 1) {
+    col = HORN.concat(255);
   }
+
+  // body (egg) with subtle shading + soft outline
+  const bv = se(x, y, BCX, BCY, BRX, BRY, BN);
+  if (bv < 1) {
+    const t = Math.max(0, Math.min(0.45, (y - (BCY - BRY)) / (2 * BRY)));
+    col = mix(WHITE, BODY_SHADE, t).concat(255);
+
+    // blush (soft radial)
+    for (const bx of [368, 656]) {
+      const bd = Math.hypot((x - bx) / 48, (y - 612) / 30);
+      if (bd < 1) col = mix(col, BLUSH, 0.55 * (1 - bd)).concat(255);
+    }
+
+    // eyes + catchlights
+    for (const ex of EYES) {
+      if (se(x, y, ex, EY, 46, 58, 2) < 1) {
+        col = EYE.concat(255);
+        if (dist(x, y, ex - 17, EY - 22) < 22) col = WHITE.concat(255);
+        if (dist(x, y, ex + 14, EY + 22) < 11) col = WHITE.concat(255);
+      }
+    }
+
+    // mouth + tongue
+    if (se(x, y, BCX, 614, 22, 15, 2) < 1) col = MOUTH.concat(255);
+    if (se(x, y, BCX, 624, 15, 10, 2) < 1) col = TONGUE.concat(255);
+  } else if (bv < 1.12) {
+    col = over(col, OUTLINE.concat(235));
+  }
+
   return col;
 }
 
@@ -114,9 +128,8 @@ function chunk(type, data) {
   crc.writeUInt32BE(crc32(Buffer.concat([t, data])), 0);
   return Buffer.concat([len, t, data, crc]);
 }
-
 function makePng(size) {
-  const ss = 4; // supersamples per axis
+  const ss = 4;
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
