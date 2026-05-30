@@ -18,12 +18,14 @@ use tokio::time::sleep;
 const TICK: Duration = Duration::from_secs(1);
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 
-type PlayerCache = HashMap<String, (Summoner, Option<QueueStats>)>;
+/// Ranked stats cached per puuid for the duration of a lobby.
+type PlayerCache = HashMap<String, Option<QueueStats>>;
 
 pub async fn run(app: AppHandle) {
     let mut conn: Option<Connection> = None;
     let mut cache: PlayerCache = HashMap::new();
     let mut attempted: HashSet<i64> = HashSet::new();
+    let mut self_puuid = String::new();
     let mut was_in_champ_select = false;
 
     loop {
@@ -81,13 +83,28 @@ pub async fn run(app: AppHandle) {
                     let _ = api::dodge(active).await;
                 }
 
-                let players = build_players(active, &session, &settings, &mut cache).await;
+                // Reveal allies from the champ-select chat room (the session no
+                // longer carries their identities). Learn our own puuid once so
+                // we can flag "you".
+                if self_puuid.is_empty() {
+                    if let Ok(p) = api::current_summoner_puuid(active).await {
+                        self_puuid = p;
+                    }
+                }
+                let players = match api::chat_participants(active).await {
+                    Ok(parts) => {
+                        build_players(active, &parts, &self_puuid, &settings, &mut cache).await
+                    }
+                    Err(_) => Vec::new(),
+                };
+                let champ_phase = timer.phase.clone();
+                let time_left_ms = timer.adjusted_time_left_in_phase;
                 let ui = UiState {
                     connected: true,
                     phase,
                     in_champ_select: true,
-                    champ_phase: timer.phase.clone(),
-                    time_left_ms: timer.adjusted_time_left_in_phase,
+                    champ_phase,
+                    time_left_ms,
                     players,
                     message: String::new(),
                 };
@@ -115,9 +132,10 @@ pub async fn run(app: AppHandle) {
 }
 
 /// Auto-ban / auto-pick: when it's the local player's turn and the matching
-/// automation is enabled, lock in the configured champion. Each action is only
-/// attempted once so a rejected champion (already banned, not owned, …) doesn't
-/// get hammered every tick.
+/// automation is enabled, hover the configured champion then lock it in. We only
+/// mark an action done once the lock-in succeeds, so a transient rejection is
+/// retried on the next tick (but a genuinely invalid champion just keeps hovering
+/// harmlessly).
 async fn handle_actions(
     conn: &Connection,
     session: &ChampSelectSession,
@@ -142,72 +160,53 @@ async fn handle_actions(
             }
             _ => continue,
         };
-        // Mark attempted regardless of outcome to avoid spamming the client.
-        attempted.insert(action.id);
-        let _ = api::patch_action(conn, action.id, champion, true).await;
+        // Hover first (bans often require it), then lock in.
+        let _ = api::hover_action(conn, action.id, champion).await;
+        if api::patch_action(conn, action.id, champion, true).await.is_ok() {
+            attempted.insert(action.id);
+        }
     }
 }
 
-/// Resolve every ally cell into a display row, caching lookups per puuid so we
-/// only hit the summoner/ranked endpoints once per lobby.
+/// Build the revealed-player rows from the champ-select chat participants,
+/// caching ranked lookups per puuid so we only hit the endpoint once per lobby.
 async fn build_players(
     conn: &Connection,
-    session: &ChampSelectSession,
+    participants: &[ChatParticipant],
+    self_puuid: &str,
     settings: &Settings,
     cache: &mut PlayerCache,
 ) -> Vec<UiPlayer> {
-    // Reveal everyone the client exposes — your subteam *and* anyone listed on
-    // the other side (e.g. Arena lists multiple sub-teams). Dedupe by cell id.
     let mut players = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    let others = session
-        .their_team
-        .iter()
-        .filter(|m| !m.puuid.is_empty());
-    for member in session.my_team.iter().chain(others) {
-        if !seen.insert(member.cell_id) {
+    let mut cell = 0;
+    for p in participants {
+        // Keep only the champ-select room, and only entries we can resolve.
+        if p.puuid.is_empty() || !p.cid.contains("champ-select") {
             continue;
         }
-        let is_local = member.cell_id == session.local_player_cell_id;
-        let champion_id = if member.champion_id > 0 {
-            member.champion_id
+
+        if !cache.contains_key(&p.puuid) {
+            let ranked = api::ranked_by_puuid(conn, &p.puuid)
+                .await
+                .ok()
+                .and_then(|r| r.queue_map.get("RANKED_SOLO_5x5").cloned());
+            cache.insert(p.puuid.clone(), ranked);
+        }
+        let ranked = cache.get(&p.puuid).cloned().flatten();
+
+        // Riot ID: prefer the structured gameName#tagLine, fall back to `name`.
+        let (game_name, tag_line, riot_id) = if !p.game_name.is_empty() {
+            (
+                p.game_name.clone(),
+                p.game_tag.clone(),
+                format!("{}#{}", p.game_name, p.game_tag),
+            )
         } else {
-            member.champion_pick_intent
+            let (n, t) = p.name.split_once('#').unwrap_or((p.name.as_str(), ""));
+            (n.to_string(), t.to_string(), p.name.clone())
         };
 
-        // Allies with no exposed puuid can't be revealed (rare); show the slot.
-        if member.puuid.is_empty() {
-            players.push(UiPlayer {
-                cell_id: member.cell_id,
-                position: member.assigned_position.clone(),
-                champion_id,
-                riot_id: "Hidden".into(),
-                is_local,
-                ..Default::default()
-            });
-            continue;
-        }
-
-        if !cache.contains_key(&member.puuid) {
-            if let Ok(summoner) = api::summoner_by_puuid(conn, &member.puuid).await {
-                let ranked = api::ranked_by_puuid(conn, &member.puuid)
-                    .await
-                    .ok()
-                    .and_then(|r| r.queue_map.get("RANKED_SOLO_5x5").cloned());
-                cache.insert(member.puuid.clone(), (summoner, ranked));
-            }
-        }
-
-        let Some((summoner, ranked)) = cache.get(&member.puuid) else {
-            continue;
-        };
-
-        let riot_id = if !summoner.game_name.is_empty() {
-            format!("{}#{}", summoner.game_name, summoner.tag_line)
-        } else {
-            summoner.display_name.clone()
-        };
-        let (rank, lp, wins, losses, winrate) = match ranked {
+        let (rank, lp, wins, losses, winrate) = match &ranked {
             Some(q) if !q.tier.is_empty() && q.tier != "NONE" => {
                 let total = q.wins + q.losses;
                 let wr = if total > 0 {
@@ -221,19 +220,20 @@ async fn build_players(
         };
 
         players.push(UiPlayer {
-            cell_id: member.cell_id,
-            position: member.assigned_position.clone(),
-            champion_id,
-            riot_id: riot_id.clone(),
-            level: summoner.summoner_level,
+            cell_id: cell,
+            position: String::new(),
+            champion_id: 0,
+            riot_id,
+            level: 0,
             rank,
             lp,
             wins,
             losses,
             winrate,
-            is_local,
-            opgg_url: opgg_url(&settings.region, &summoner.game_name, &summoner.tag_line),
+            is_local: !self_puuid.is_empty() && p.puuid == self_puuid,
+            opgg_url: opgg_url(&settings.region, &game_name, &tag_line),
         });
+        cell += 1;
     }
     players
 }

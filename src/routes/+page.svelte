@@ -117,14 +117,7 @@
 <main>
   <header>
     <div class="brand">
-      <svg class="logo" viewBox="0 0 16 16" aria-hidden="true">
-        <g shape-rendering="crispEdges">
-          <path fill="#5fd0ff" d="M4 2h4v1H4zM3 3h6v1H3zM2 4h2v4H2zM8 4h2v4H8zM3 8h2v1H3zM7 8h2v1H7zM4 9h4v1H4z" />
-          <path fill="#2a6cf0" d="M4 4h4v4H4zM4 4h4v1H4zM3 5h6v3H3z" />
-          <rect x="5" y="3" width="1" height="1" fill="#fff" />
-          <path fill="#5fd0ff" d="M9 9h2v2H9zM10 10h2v2h-2zM11 11h2v2h-2z" />
-        </g>
-      </svg>
+      <img class="logo" src="/favicon.png" alt="" />
       <h1>Lobby<span>Reveal</span></h1>
     </div>
     <div class="status" class:on={ui.connected}>
@@ -262,8 +255,11 @@
     gap: 0.55rem;
   }
   .logo {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
+    display: block;
+    border-radius: 8px;
+    image-rendering: pixelated;
     filter: drop-shadow(0 0 6px rgba(95, 208, 255, 0.45));
   }
   h1 {

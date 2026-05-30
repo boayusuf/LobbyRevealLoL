@@ -23,7 +23,9 @@
 </script>
 
 <div class="card" class:local={player.isLocal}>
-  <div class="pos">{POSITIONS[player.position] ?? player.position}</div>
+  {#if player.position}
+    <div class="pos">{POSITIONS[player.position] ?? player.position}</div>
+  {/if}
   <div class="main">
     <div class="name-row">
       <span class="name">{player.riotId}</span>

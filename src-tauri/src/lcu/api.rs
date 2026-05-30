@@ -60,6 +60,37 @@ pub async fn summoner_by_puuid(conn: &Connection, puuid: &str) -> Result<Summone
     .await
 }
 
+/// puuid of the logged-in player, used to flag "you" in the revealed list.
+pub async fn current_summoner_puuid(conn: &Connection) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct Cur {
+        #[serde(default)]
+        puuid: String,
+    }
+    let cur: Cur = conn
+        .request(Method::GET, "/lol-summoner/v1/current-summoner")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(cur.puuid)
+}
+
+/// All chat participants. Callers filter to the champ-select room (`cid`
+/// contains "champ-select") to reveal allies — the session no longer carries
+/// their identities.
+pub async fn chat_participants(conn: &Connection) -> Result<Vec<ChatParticipant>> {
+    let lobby: ChatParticipants = conn
+        .request(Method::GET, "/chat/v5/participants")
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    Ok(lobby.participants)
+}
+
 pub async fn ranked_by_puuid(conn: &Connection, puuid: &str) -> Result<RankedStats> {
     conn.request(
         Method::GET,
@@ -70,6 +101,22 @@ pub async fn ranked_by_puuid(conn: &Connection, puuid: &str) -> Result<RankedSta
     .error_for_status()?
     .json()
     .await
+}
+
+/// Hover a champion on an action without locking it in (sets `championId`
+/// only). Some clients reject an immediate completed ban unless the champion is
+/// hovered first, so we always hover before completing.
+pub async fn hover_action(conn: &Connection, action_id: i64, champion_id: i64) -> Result<()> {
+    let body = serde_json::json!({ "championId": champion_id });
+    conn.request(
+        Method::PATCH,
+        &format!("/lol-champ-select/v1/session/actions/{action_id}"),
+    )
+    .json(&body)
+    .send()
+    .await?
+    .error_for_status()?;
+    Ok(())
 }
 
 /// Hover/ban/pick a champion by PATCHing a champ-select action.

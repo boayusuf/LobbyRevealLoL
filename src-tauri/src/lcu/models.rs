@@ -127,6 +127,37 @@ pub struct ReadyCheck {
 }
 
 // ---------------------------------------------------------------------------
+// Chat participants (`/chat/v5/participants`)
+//
+// The champ-select session no longer exposes teammates' puuid/summonerId, so we
+// recover identities from the champ-select chat room instead — the same trick
+// steele123/reveal uses. Each participant carries their Riot ID + puuid; we keep
+// only those whose conversation id (`cid`) is the champ-select room.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatParticipants {
+    #[serde(default)]
+    pub participants: Vec<ChatParticipant>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatParticipant {
+    #[serde(default)]
+    pub puuid: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub game_name: String,
+    #[serde(default)]
+    pub game_tag: String,
+    #[serde(default)]
+    pub cid: String,
+}
+
+// ---------------------------------------------------------------------------
 // Settings (frontend -> backend) and view-models (backend -> frontend)
 // ---------------------------------------------------------------------------
 
