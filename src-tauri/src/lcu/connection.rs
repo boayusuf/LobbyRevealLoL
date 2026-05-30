@@ -44,27 +44,46 @@ impl Connection {
     }
 }
 
-/// Scan running processes for the League Client and extract (port, token).
-/// Returns `None` if the client isn't running or the args couldn't be parsed.
-pub fn discover() -> Option<(u16, String)> {
+/// Connection details for both local servers, recovered from the League
+/// Client's command line. The LeagueClientUx process is launched with the LCU
+/// port/token (`--app-port` / `--remoting-auth-token`) *and* the Riot Client's
+/// port/token (`--riotclient-app-port` / `--riotclient-auth-token`).
+pub struct Discovered {
+    /// League Client (LeagueClientUx) — serves the `/lol-...` endpoints.
+    pub lcu: (u16, String),
+    /// Riot Client (RiotClientServices) — serves `/chat/v5/...`, `/riotclient/...`.
+    pub riot: Option<(u16, String)>,
+}
+
+/// Scan running processes for the League Client and extract both servers'
+/// (port, token). Returns `None` if the client isn't running.
+pub fn discover() -> Option<Discovered> {
     let sys = System::new_all();
     for proc in sys.processes().values() {
         let name = proc.name().to_string_lossy();
         if !name.eq_ignore_ascii_case("LeagueClientUx.exe") {
             continue;
         }
-        let mut port: Option<u16> = None;
-        let mut token: Option<String> = None;
+        let (mut lcu_port, mut lcu_token) = (None, None);
+        let (mut riot_port, mut riot_token) = (None, None);
         for arg in proc.cmd() {
             let arg = arg.to_string_lossy();
             if let Some(v) = arg.strip_prefix("--app-port=") {
-                port = v.trim_matches('"').parse().ok();
+                lcu_port = v.trim_matches('"').parse().ok();
             } else if let Some(v) = arg.strip_prefix("--remoting-auth-token=") {
-                token = Some(v.trim_matches('"').to_string());
+                lcu_token = Some(v.trim_matches('"').to_string());
+            } else if let Some(v) = arg.strip_prefix("--riotclient-app-port=") {
+                riot_port = v.trim_matches('"').parse().ok();
+            } else if let Some(v) = arg.strip_prefix("--riotclient-auth-token=") {
+                riot_token = Some(v.trim_matches('"').to_string());
             }
         }
-        if let (Some(p), Some(t)) = (port, token) {
-            return Some((p, t));
+        if let (Some(p), Some(t)) = (lcu_port, lcu_token) {
+            let riot = match (riot_port, riot_token) {
+                (Some(rp), Some(rt)) => Some((rp, rt)),
+                _ => None,
+            };
+            return Some(Discovered { lcu: (p, t), riot });
         }
     }
     None

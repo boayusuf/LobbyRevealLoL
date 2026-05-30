@@ -23,6 +23,9 @@ type PlayerCache = HashMap<String, Option<QueueStats>>;
 
 pub async fn run(app: AppHandle) {
     let mut conn: Option<Connection> = None;
+    // Separate connection to the Riot Client (serves the chat endpoint used for
+    // the reveal). Distinct local server from the League Client.
+    let mut riot_conn: Option<Connection> = None;
     let mut cache: PlayerCache = HashMap::new();
     let mut attempted: HashSet<i64> = HashSet::new();
     let mut self_puuid = String::new();
@@ -31,11 +34,15 @@ pub async fn run(app: AppHandle) {
     loop {
         // 1. Ensure a connection.
         if conn.is_none() {
-            if let Some((port, token)) = connection::discover() {
-                if let Ok(c) = Connection::new(port, &token) {
+            if let Some(d) = connection::discover() {
+                if let Ok(c) = Connection::new(d.lcu.0, &d.lcu.1) {
                     *app.state::<AppState>().conn_info.lock().unwrap() =
-                        Some((port, token));
+                        Some(d.lcu.clone());
                     conn = Some(c);
+                    riot_conn = d
+                        .riot
+                        .as_ref()
+                        .and_then(|(p, t)| Connection::new(*p, t).ok());
                 }
             }
         }
@@ -53,6 +60,7 @@ pub async fn run(app: AppHandle) {
             Err(_) => {
                 // The client went away (closed, or token rotated). Reset.
                 conn = None;
+                riot_conn = None;
                 *app.state::<AppState>().conn_info.lock().unwrap() = None;
                 cache.clear();
                 attempted.clear();
@@ -91,27 +99,39 @@ pub async fn run(app: AppHandle) {
                         self_puuid = p;
                     }
                 }
-                let (players, debug) = match api::chat_participants(active).await {
-                    Ok(parts) => {
-                        let champ = parts.iter().filter(|p| p.cid.contains("champ")).count();
-                        let sample = parts
-                            .iter()
-                            .map(|p| p.cid.clone())
-                            .find(|c| !c.is_empty())
-                            .unwrap_or_default();
-                        let sample: String = sample.chars().take(40).collect();
-                        let dbg = format!(
-                            "chat: {} participants, {} champ-room · cid≈{}",
-                            parts.len(),
-                            champ,
-                            sample
-                        );
-                        (
-                            build_players(active, &parts, &self_puuid, &settings, &mut cache).await,
-                            dbg,
-                        )
-                    }
-                    Err(e) => (Vec::new(), format!("chat endpoint error: {e}")),
+                // The chat roster lives on the Riot Client, not the League
+                // Client — use that connection.
+                let (players, debug) = match riot_conn.as_ref() {
+                    None => (
+                        Vec::new(),
+                        "Riot Client port not found in client args.".to_string(),
+                    ),
+                    Some(rc) => match api::chat_participants(rc).await {
+                        Ok(parts) => {
+                            let champ =
+                                parts.iter().filter(|p| p.cid.contains("champ")).count();
+                            let sample: String = parts
+                                .iter()
+                                .map(|p| p.cid.clone())
+                                .find(|c| !c.is_empty())
+                                .unwrap_or_default()
+                                .chars()
+                                .take(40)
+                                .collect();
+                            let dbg = format!(
+                                "riot chat: {} participants, {} champ-room · cid≈{}",
+                                parts.len(),
+                                champ,
+                                sample
+                            );
+                            (
+                                build_players(active, &parts, &self_puuid, &settings, &mut cache)
+                                    .await,
+                                dbg,
+                            )
+                        }
+                        Err(e) => (Vec::new(), format!("riot chat error: {e}")),
+                    },
                 };
                 let champ_phase = timer.phase.clone();
                 let time_left_ms = timer.adjusted_time_left_in_phase;
