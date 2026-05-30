@@ -11,7 +11,6 @@
 use crate::lcu::{api, connection, models::*, Connection};
 use crate::state::AppState;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
@@ -31,7 +30,11 @@ pub async fn run(app: AppHandle) {
         // 1. Ensure a connection.
         if conn.is_none() {
             if let Some((port, token)) = connection::discover() {
-                conn = Connection::new(port, &token).ok();
+                if let Ok(c) = Connection::new(port, &token) {
+                    *app.state::<AppState>().conn_info.lock().unwrap() =
+                        Some((port, token));
+                    conn = Some(c);
+                }
             }
         }
         let Some(active) = conn.as_ref() else {
@@ -40,13 +43,7 @@ pub async fn run(app: AppHandle) {
             continue;
         };
 
-        // Read a snapshot of settings + the one-shot manual dodge flag.
-        let (settings, manual_dodge) = {
-            let state = app.state::<AppState>();
-            let settings = state.settings.lock().unwrap().clone();
-            let manual = state.dodge_requested.swap(false, Ordering::SeqCst);
-            (settings, manual)
-        };
+        let settings = app.state::<AppState>().settings.lock().unwrap().clone();
 
         // 2. Determine where the client is in its flow.
         let phase = match api::gameflow_phase(active).await {
@@ -54,6 +51,7 @@ pub async fn run(app: AppHandle) {
             Err(_) => {
                 // The client went away (closed, or token rotated). Reset.
                 conn = None;
+                *app.state::<AppState>().conn_info.lock().unwrap() = None;
                 cache.clear();
                 attempted.clear();
                 emit_disconnected(&app, "Lost connection to the League client.");
@@ -79,7 +77,7 @@ pub async fn run(app: AppHandle) {
                     && timer.phase == "FINALIZATION"
                     && timer.adjusted_time_left_in_phase > 0
                     && timer.adjusted_time_left_in_phase <= settings.dodge_threshold_ms;
-                if manual_dodge || last_second {
+                if last_second {
                     let _ = api::dodge(active).await;
                 }
 

@@ -76,8 +76,19 @@
   function onBanInput() {
     settings.autoBanChampionId = nameToId(banName);
   }
-  function dodgeNow() {
-    invoke("dodge_now");
+  let dodgeMsg = $state("");
+  let dodgeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function dodgeNow() {
+    clearTimeout(dodgeTimer);
+    dodgeMsg = "Dodging…";
+    try {
+      await invoke("dodge_now");
+      dodgeMsg = "✓ Dodge sent — leaving champ select (client stays open).";
+    } catch (e) {
+      dodgeMsg = `✗ ${e}`;
+    }
+    dodgeTimer = setTimeout(() => (dodgeMsg = ""), 5000);
   }
 
   const seconds = $derived(Math.max(0, Math.ceil(ui.timeLeftMs / 1000)));
@@ -147,6 +158,9 @@
         </button>
         <button class="dodge" onclick={dodgeNow}>⏏ Dodge</button>
       </div>
+      {#if dodgeMsg}
+        <p class="dodge-msg" class:err={dodgeMsg.startsWith("✗")}>{dodgeMsg}</p>
+      {/if}
     {:else}
       <p class="empty">{ui.message || "Waiting for champ select…"}</p>
     {/if}
@@ -358,6 +372,15 @@
   }
   .dodge:hover {
     background: #3a1a1d;
+  }
+  .dodge-msg {
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: #41d18a;
+    text-align: center;
+  }
+  .dodge-msg.err {
+    color: #e0796b;
   }
   .settings {
     background: #11161f;
