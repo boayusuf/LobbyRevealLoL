@@ -91,11 +91,27 @@ pub async fn run(app: AppHandle) {
                         self_puuid = p;
                     }
                 }
-                let players = match api::chat_participants(active).await {
+                let (players, debug) = match api::chat_participants(active).await {
                     Ok(parts) => {
-                        build_players(active, &parts, &self_puuid, &settings, &mut cache).await
+                        let champ = parts.iter().filter(|p| p.cid.contains("champ")).count();
+                        let sample = parts
+                            .iter()
+                            .map(|p| p.cid.clone())
+                            .find(|c| !c.is_empty())
+                            .unwrap_or_default();
+                        let sample: String = sample.chars().take(40).collect();
+                        let dbg = format!(
+                            "chat: {} participants, {} champ-room · cid≈{}",
+                            parts.len(),
+                            champ,
+                            sample
+                        );
+                        (
+                            build_players(active, &parts, &self_puuid, &settings, &mut cache).await,
+                            dbg,
+                        )
                     }
-                    Err(_) => Vec::new(),
+                    Err(e) => (Vec::new(), format!("chat endpoint error: {e}")),
                 };
                 let champ_phase = timer.phase.clone();
                 let time_left_ms = timer.adjusted_time_left_in_phase;
@@ -107,6 +123,7 @@ pub async fn run(app: AppHandle) {
                     time_left_ms,
                     players,
                     message: String::new(),
+                    debug,
                 };
                 let _ = app.emit("lcu-update", &ui);
                 was_in_champ_select = true;
@@ -180,19 +197,24 @@ async fn build_players(
     let mut players = Vec::new();
     let mut cell = 0;
     for p in participants {
-        // Keep only the champ-select room, and only entries we can resolve.
-        if p.puuid.is_empty() || !p.cid.contains("champ-select") {
+        // Keep only the champ-select room. Show the name even if we can't look
+        // up rank (some entries may not expose a puuid).
+        if !p.cid.contains("champ") {
             continue;
         }
 
-        if !cache.contains_key(&p.puuid) {
-            let ranked = api::ranked_by_puuid(conn, &p.puuid)
-                .await
-                .ok()
-                .and_then(|r| r.queue_map.get("RANKED_SOLO_5x5").cloned());
-            cache.insert(p.puuid.clone(), ranked);
-        }
-        let ranked = cache.get(&p.puuid).cloned().flatten();
+        let ranked = if p.puuid.is_empty() {
+            None
+        } else {
+            if !cache.contains_key(&p.puuid) {
+                let r = api::ranked_by_puuid(conn, &p.puuid)
+                    .await
+                    .ok()
+                    .and_then(|r| r.queue_map.get("RANKED_SOLO_5x5").cloned());
+                cache.insert(p.puuid.clone(), r);
+            }
+            cache.get(&p.puuid).cloned().flatten()
+        };
 
         // Riot ID: prefer the structured gameName#tagLine, fall back to `name`.
         let (game_name, tag_line, riot_id) = if !p.game_name.is_empty() {

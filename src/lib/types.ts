@@ -21,6 +21,7 @@ export interface UiState {
   timeLeftMs: number;
   players: UiPlayer[];
   message: string;
+  debug: string;
 }
 
 export interface Settings {

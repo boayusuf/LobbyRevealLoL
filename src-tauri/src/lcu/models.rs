@@ -218,6 +218,8 @@ pub struct UiState {
     pub time_left_ms: i64,
     pub players: Vec<UiPlayer>,
     pub message: String,
+    /// Diagnostic readout shown in the UI while we debug the reveal source.
+    pub debug: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

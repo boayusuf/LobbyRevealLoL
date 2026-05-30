@@ -22,6 +22,7 @@
     timeLeftMs: 0,
     players: [],
     message: "Starting…",
+    debug: "",
   });
 
   let settings = $state<Settings>({ ...defaultSettings });
@@ -222,6 +223,10 @@
       </select>
     </label>
   </section>
+
+  {#if ui.debug}
+    <p class="debug">{ui.debug}</p>
+  {/if}
 
   <footer>
     Read-only client API use. Use at your own risk — automating champ select may
@@ -429,6 +434,17 @@
   }
   .champ {
     width: 150px;
+  }
+  .debug {
+    margin: 0.9rem 0 0;
+    padding: 0.4rem 0.6rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.68rem;
+    color: #8fb6e0;
+    background: #0c1320;
+    border: 1px solid #1c2740;
+    border-radius: 6px;
+    word-break: break-all;
   }
   footer {
     margin-top: 1rem;
