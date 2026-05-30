@@ -103,6 +103,41 @@ pub async fn ranked_by_puuid(conn: &Connection, puuid: &str) -> Result<RankedSta
     .await
 }
 
+/// Win rate over the player's most recent `count` games (wins, total).
+/// Works by puuid; returns (0, 0) if the player's history isn't accessible.
+pub async fn recent_winrate(conn: &Connection, puuid: &str, count: i64) -> Result<(i64, i64)> {
+    let path = format!(
+        "/lol-match-history/v1/products/lol/{puuid}/matches?begIndex=0&endIndex={}",
+        count.max(1) - 1
+    );
+    let hist: MatchHistory = conn
+        .request(Method::GET, &path)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    let mut wins = 0;
+    let mut total = 0;
+    for game in hist.games.games.iter().take(count as usize) {
+        let id = game
+            .participant_identities
+            .iter()
+            .find(|i| i.player.puuid == puuid)
+            .map(|i| i.participant_id);
+        if let Some(id) = id {
+            if let Some(p) = game.participants.iter().find(|p| p.participant_id == id) {
+                total += 1;
+                if p.stats.win {
+                    wins += 1;
+                }
+            }
+        }
+    }
+    Ok((wins, total))
+}
+
 /// Hover a champion on an action without locking it in (sets `championId`
 /// only). Some clients reject an immediate completed ban unless the champion is
 /// hovered first, so we always hover before completing.

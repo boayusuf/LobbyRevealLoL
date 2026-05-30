@@ -6,9 +6,8 @@ export interface UiPlayer {
   level: number;
   rank: string;
   lp: number;
-  wins: number;
-  losses: number;
-  winrate: number;
+  recentWinrate: number;
+  recentGames: number;
   isLocal: boolean;
   opggUrl: string;
 }

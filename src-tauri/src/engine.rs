@@ -10,16 +10,26 @@
 
 use crate::lcu::{api, connection, models::*, Connection};
 use crate::state::AppState;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::sleep;
 
 const TICK: Duration = Duration::from_secs(1);
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
+/// How many recent games to base the win rate on.
+const RECENT_GAMES: i64 = 10;
+/// Cap auto-pick/ban attempts per action so a non-lockable champion can't spam.
+const MAX_ATTEMPTS: u32 = 10;
 
-/// Ranked stats cached per puuid for the duration of a lobby.
-type PlayerCache = HashMap<String, Option<QueueStats>>;
+/// Per-player stats cached for the duration of a lobby.
+#[derive(Clone, Default)]
+struct PlayerStats {
+    ranked: Option<QueueStats>,
+    recent_wins: i64,
+    recent_total: i64,
+}
+type PlayerCache = HashMap<String, PlayerStats>;
 
 pub async fn run(app: AppHandle) {
     let mut conn: Option<Connection> = None;
@@ -27,7 +37,7 @@ pub async fn run(app: AppHandle) {
     // the reveal). Distinct local server from the League Client.
     let mut riot_conn: Option<Connection> = None;
     let mut cache: PlayerCache = HashMap::new();
-    let mut attempted: HashSet<i64> = HashSet::new();
+    let mut attempts: HashMap<i64, u32> = HashMap::new();
     let mut self_puuid = String::new();
     let mut was_in_champ_select = false;
 
@@ -63,7 +73,7 @@ pub async fn run(app: AppHandle) {
                 riot_conn = None;
                 *app.state::<AppState>().conn_info.lock().unwrap() = None;
                 cache.clear();
-                attempted.clear();
+                attempts.clear();
                 emit_disconnected(&app, "Lost connection to the League client.");
                 sleep(RECONNECT_DELAY).await;
                 continue;
@@ -80,7 +90,7 @@ pub async fn run(app: AppHandle) {
 
         if phase == "ChampSelect" {
             if let Ok(session) = api::champ_select_session(active).await {
-                handle_actions(active, &session, &settings, &mut attempted).await;
+                handle_actions(active, &session, &settings, &mut attempts).await;
 
                 let timer = &session.timer;
                 let last_second = settings.auto_dodge
@@ -152,7 +162,7 @@ pub async fn run(app: AppHandle) {
             // Left champ select: invalidate per-lobby caches once.
             if was_in_champ_select {
                 cache.clear();
-                attempted.clear();
+                attempts.clear();
                 was_in_champ_select = false;
             }
             let ui = UiState {
@@ -169,23 +179,23 @@ pub async fn run(app: AppHandle) {
 }
 
 /// Auto-ban / auto-pick: when it's the local player's turn and the matching
-/// automation is enabled, hover the configured champion then lock it in. We only
-/// mark an action done once the lock-in succeeds, so a transient rejection is
-/// retried on the next tick (but a genuinely invalid champion just keeps hovering
-/// harmlessly).
+/// automation is enabled, hover the configured champion then lock it in.
+///
+/// We retry every tick until the client reports the action `completed` (the
+/// guard below stops us once it is), rather than giving up after one request —
+/// that's what caused "only works after a reopen": a first request that returned
+/// OK but didn't actually lock was never retried. `attempts` caps the retries so
+/// a champion that genuinely can't be locked (already banned, not owned) can't
+/// spam the client forever.
 async fn handle_actions(
     conn: &Connection,
     session: &ChampSelectSession,
     settings: &Settings,
-    attempted: &mut HashSet<i64>,
+    attempts: &mut HashMap<i64, u32>,
 ) {
     let local = session.local_player_cell_id;
     for action in session.actions.iter().flatten() {
-        if action.actor_cell_id != local
-            || action.completed
-            || !action.is_in_progress
-            || attempted.contains(&action.id)
-        {
+        if action.actor_cell_id != local || action.completed || !action.is_in_progress {
             continue;
         }
         let champion = match action.action_type.as_str() {
@@ -197,11 +207,14 @@ async fn handle_actions(
             }
             _ => continue,
         };
+        let tries = attempts.entry(action.id).or_insert(0);
+        if *tries >= MAX_ATTEMPTS {
+            continue;
+        }
+        *tries += 1;
         // Hover first (bans often require it), then lock in.
         let _ = api::hover_action(conn, action.id, champion).await;
-        if api::patch_action(conn, action.id, champion, true).await.is_ok() {
-            attempted.insert(action.id);
-        }
+        let _ = api::patch_action(conn, action.id, champion, true).await;
     }
 }
 
@@ -223,17 +236,28 @@ async fn build_players(
             continue;
         }
 
-        let ranked = if p.puuid.is_empty() {
-            None
+        // Resolve ranked + recent-games win rate once per puuid, then cache.
+        let stats = if p.puuid.is_empty() {
+            PlayerStats::default()
         } else {
             if !cache.contains_key(&p.puuid) {
-                let r = api::ranked_by_puuid(conn, &p.puuid)
+                let ranked = api::ranked_by_puuid(conn, &p.puuid)
                     .await
                     .ok()
                     .and_then(|r| r.queue_map.get("RANKED_SOLO_5x5").cloned());
-                cache.insert(p.puuid.clone(), r);
+                let (recent_wins, recent_total) = api::recent_winrate(conn, &p.puuid, RECENT_GAMES)
+                    .await
+                    .unwrap_or((0, 0));
+                cache.insert(
+                    p.puuid.clone(),
+                    PlayerStats {
+                        ranked,
+                        recent_wins,
+                        recent_total,
+                    },
+                );
             }
-            cache.get(&p.puuid).cloned().flatten()
+            cache.get(&p.puuid).cloned().unwrap_or_default()
         };
 
         // Riot ID: prefer the structured gameName#tagLine, fall back to `name`.
@@ -248,17 +272,16 @@ async fn build_players(
             (n.to_string(), t.to_string(), p.name.clone())
         };
 
-        let (rank, lp, wins, losses, winrate) = match &ranked {
+        let (rank, lp) = match &stats.ranked {
             Some(q) if !q.tier.is_empty() && q.tier != "NONE" => {
-                let total = q.wins + q.losses;
-                let wr = if total > 0 {
-                    (q.wins as f64 / total as f64 * 100.0).round() as i64
-                } else {
-                    0
-                };
-                (format_rank(q), q.league_points, q.wins, q.losses, wr)
+                (format_rank(q), q.league_points)
             }
-            _ => ("Unranked".into(), 0, 0, 0, 0),
+            _ => ("Unranked".into(), 0),
+        };
+        let recent_winrate = if stats.recent_total > 0 {
+            (stats.recent_wins as f64 / stats.recent_total as f64 * 100.0).round() as i64
+        } else {
+            0
         };
 
         players.push(UiPlayer {
@@ -269,9 +292,8 @@ async fn build_players(
             level: 0,
             rank,
             lp,
-            wins,
-            losses,
-            winrate,
+            recent_winrate,
+            recent_games: stats.recent_total,
             is_local: !self_puuid.is_empty() && p.puuid == self_puuid,
             opgg_url: opgg_url(&settings.region, &game_name, &tag_line),
         });

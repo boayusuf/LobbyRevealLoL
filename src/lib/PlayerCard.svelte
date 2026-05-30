@@ -32,13 +32,17 @@
       {#if player.isLocal}<span class="you">YOU</span>{/if}
     </div>
     <div class="sub">
-      {#if player.level > 0}<span class="lvl">Lv {player.level}</span>{/if}
       <span class="rank {rankClass(player.rank)}">{player.rank}</span>
-      {#if player.wins + player.losses > 0}
-        <span class="wr" class:good={player.winrate >= 50} class:bad={player.winrate < 50}>
-          {player.winrate}% WR
+      {#if player.lp > 0}<span class="games">{player.lp} LP</span>{/if}
+      {#if player.recentGames > 0}
+        <span
+          class="wr"
+          class:good={player.recentWinrate >= 50}
+          class:bad={player.recentWinrate < 50}
+        >
+          {player.recentWinrate}% WR
         </span>
-        <span class="games">{player.wins}W {player.losses}L · {player.lp} LP</span>
+        <span class="games">last {player.recentGames}</span>
       {/if}
     </div>
   </div>

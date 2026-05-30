@@ -114,6 +114,65 @@ pub struct QueueStats {
 }
 
 // ---------------------------------------------------------------------------
+// Match history (`/lol-match-history/v1/products/lol/{puuid}/matches`)
+// Used to compute a recent-games win rate, since ranked-stats hides losses for
+// other players.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MatchHistory {
+    #[serde(default)]
+    pub games: GamesWrap,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct GamesWrap {
+    #[serde(default)]
+    pub games: Vec<HistGame>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistGame {
+    #[serde(default)]
+    pub participants: Vec<HistParticipant>,
+    #[serde(default)]
+    pub participant_identities: Vec<HistIdentity>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistParticipant {
+    #[serde(default)]
+    pub participant_id: i64,
+    #[serde(default)]
+    pub stats: HistStats,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistStats {
+    #[serde(default)]
+    pub win: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistIdentity {
+    #[serde(default)]
+    pub participant_id: i64,
+    #[serde(default)]
+    pub player: HistPlayer,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistPlayer {
+    #[serde(default)]
+    pub puuid: String,
+}
+
+// ---------------------------------------------------------------------------
 // Ready check (`/lol-matchmaking/v1/ready-check`)
 // ---------------------------------------------------------------------------
 
@@ -201,9 +260,10 @@ pub struct UiPlayer {
     pub level: i64,
     pub rank: String,
     pub lp: i64,
-    pub wins: i64,
-    pub losses: i64,
-    pub winrate: i64,
+    /// Win rate over recent games (from match history), 0 if unavailable.
+    pub recent_winrate: i64,
+    /// How many recent games the win rate is based on (0 = none available).
+    pub recent_games: i64,
     pub is_local: bool,
     pub opgg_url: String,
 }
