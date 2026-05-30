@@ -1,0 +1,197 @@
+//! Deserialization models for the LCU endpoints we consume, plus the
+//! serializable view-models we push to the frontend.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+// ---------------------------------------------------------------------------
+// Champion select session (`/lol-champ-select/v1/session`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChampSelectSession {
+    #[serde(default)]
+    pub actions: Vec<Vec<Action>>,
+    #[serde(default)]
+    pub my_team: Vec<TeamMember>,
+    #[serde(default)]
+    pub their_team: Vec<TeamMember>,
+    #[serde(default)]
+    pub local_player_cell_id: i64,
+    #[serde(default)]
+    pub timer: Timer,
+    #[serde(default)]
+    pub is_custom_game: bool,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Timer {
+    #[serde(default)]
+    pub adjusted_time_left_in_phase: i64,
+    #[serde(default)]
+    pub total_time_in_phase: i64,
+    #[serde(default)]
+    pub phase: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMember {
+    #[serde(default)]
+    pub cell_id: i64,
+    #[serde(default)]
+    pub champion_id: i64,
+    #[serde(default)]
+    pub champion_pick_intent: i64,
+    #[serde(default)]
+    pub assigned_position: String,
+    #[serde(default)]
+    pub puuid: String,
+    #[serde(default)]
+    pub summoner_id: i64,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Action {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub actor_cell_id: i64,
+    #[serde(default)]
+    pub champion_id: i64,
+    #[serde(default, rename = "type")]
+    pub action_type: String,
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub is_in_progress: bool,
+    #[serde(default)]
+    pub is_ally_action: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Summoner + ranked lookups
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Summoner {
+    #[serde(default)]
+    pub game_name: String,
+    #[serde(default)]
+    pub tag_line: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub summoner_level: i64,
+    #[serde(default)]
+    pub puuid: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RankedStats {
+    #[serde(default)]
+    pub queue_map: HashMap<String, QueueStats>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueStats {
+    #[serde(default)]
+    pub tier: String,
+    #[serde(default)]
+    pub division: String,
+    #[serde(default)]
+    pub league_points: i64,
+    #[serde(default)]
+    pub wins: i64,
+    #[serde(default)]
+    pub losses: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Ready check (`/lol-matchmaking/v1/ready-check`)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadyCheck {
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub player_response: String,
+}
+
+// ---------------------------------------------------------------------------
+// Settings (frontend -> backend) and view-models (backend -> frontend)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    pub auto_accept: bool,
+    pub auto_dodge: bool,
+    /// During FINALIZATION, dodge once the timer drops below this (ms).
+    pub dodge_threshold_ms: i64,
+    pub auto_pick: bool,
+    pub auto_pick_champion_id: i64,
+    pub auto_ban: bool,
+    pub auto_ban_champion_id: i64,
+    /// op.gg region slug, e.g. "euw", "na", "kr".
+    pub region: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            auto_accept: false,
+            auto_dodge: false,
+            dodge_threshold_ms: 1500,
+            auto_pick: false,
+            auto_pick_champion_id: 0,
+            auto_ban: false,
+            auto_ban_champion_id: 0,
+            region: "euw".into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiPlayer {
+    pub cell_id: i64,
+    pub position: String,
+    pub champion_id: i64,
+    pub riot_id: String,
+    pub level: i64,
+    pub rank: String,
+    pub lp: i64,
+    pub wins: i64,
+    pub losses: i64,
+    pub winrate: i64,
+    pub is_local: bool,
+    pub opgg_url: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiState {
+    pub connected: bool,
+    pub phase: String,
+    pub in_champ_select: bool,
+    pub champ_phase: String,
+    pub time_left_ms: i64,
+    pub players: Vec<UiPlayer>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Champion {
+    pub id: i64,
+    pub name: String,
+}
