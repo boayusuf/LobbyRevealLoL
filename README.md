@@ -19,7 +19,15 @@ the automation (auto pick, ban, dodge) can break Riot's Terms of Service and may
 put your account at risk. Everything is off by default. If you enable it, you
 accept all risk.
 
-## Download and run
+## Download
+
+Get the installer from the [latest release](https://github.com/boayusuf/LobbyRevealLoL/releases/latest):
+
+1. Download `LobbyReveal_0.1.0_x64-setup.exe`.
+2. Run it (Windows only, no admin needed, installs to your user profile).
+3. Start League and log in, then open LobbyReveal.
+
+## Build from source (optional)
 
 You need Git, Node.js and Rust installed (Rust needs the Visual Studio C++ build
 tools). Then in PowerShell:
@@ -31,20 +39,11 @@ npm install
 npm run tauri build
 ```
 
-The built app and installer are then here:
-
-```
-src-tauri\target\release\lobbyreveallol.exe
-src-tauri\target\release\bundle\nsis\LobbyReveal_0.1.0_x64-setup.exe
-```
-
 Or just run it without building an installer:
 
 ```powershell
 npm run tauri dev
 ```
-
-Windows only. Start League and log in, then open LobbyReveal.
 
 ## Note
 
