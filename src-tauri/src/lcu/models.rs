@@ -201,8 +201,10 @@ pub struct ChatParticipants {
     pub participants: Vec<ChatParticipant>,
 }
 
+// NOTE: the Riot chat service returns snake_case fields (game_name, game_tag),
+// unlike the camelCase LCU. Do NOT add rename_all = "camelCase" here, or the
+// names come back empty (which hides the Riot ID and the OP.GG link).
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ChatParticipant {
     #[serde(default)]
     pub puuid: String,

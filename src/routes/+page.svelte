@@ -224,7 +224,7 @@
     </label>
   </section>
 
-  {#if ui.debug}
+  {#if ui.debug && (ui.debug.includes("error") || ui.debug.includes("not found"))}
     <p class="debug">{ui.debug}</p>
   {/if}
 
