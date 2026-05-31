@@ -1,6 +1,6 @@
 # LobbyReveal
 
-A small Windows app that reveals your hidden League of Legends ranked lobby —
+A small Windows app that reveals your hidden League of Legends ranked lobby
 see who's in your champ select with their names, ranks, and recent win rates,
 plus a few optional quick-actions.
 
