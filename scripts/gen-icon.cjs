@@ -52,14 +52,14 @@ function roundRect(x, y, half, r) {
   return Math.hypot(ax, ay) + Math.min(Math.max(qx, qy), 0) - r;
 }
 
-// geometry
+// geometry — large emblem-sized Poro filling the squircle
 const BCX = 512,
-  BCY = 552,
-  BRX = 270,
-  BRY = 298,
-  BN = 2.3;
-const EYES = [430, 594];
-const EY = 540;
+  BCY = 548,
+  BRX = 362,
+  BRY = 372,
+  BN = 2.4;
+const EYES = [414, 610];
+const EY = 566;
 
 function scene(x, y) {
   let col = [0, 0, 0, 0];
@@ -70,7 +70,7 @@ function scene(x, y) {
   }
 
   // horn tufts (behind body; tips peek above)
-  if (se(x, y, 448, 236, 40, 60, 2) < 1 || se(x, y, 576, 236, 40, 60, 2) < 1) {
+  if (se(x, y, 430, 166, 54, 88, 2) < 1 || se(x, y, 594, 166, 54, 88, 2) < 1) {
     col = HORN.concat(255);
   }
 
@@ -81,24 +81,24 @@ function scene(x, y) {
     col = mix(WHITE, BODY_SHADE, t).concat(255);
 
     // blush (soft radial)
-    for (const bx of [368, 656]) {
-      const bd = Math.hypot((x - bx) / 48, (y - 612) / 30);
+    for (const bx of [352, 672]) {
+      const bd = Math.hypot((x - bx) / 60, (y - 628) / 38);
       if (bd < 1) col = mix(col, BLUSH, 0.55 * (1 - bd)).concat(255);
     }
 
     // eyes + catchlights
     for (const ex of EYES) {
-      if (se(x, y, ex, EY, 46, 58, 2) < 1) {
+      if (se(x, y, ex, EY, 60, 76, 2) < 1) {
         col = EYE.concat(255);
-        if (dist(x, y, ex - 17, EY - 22) < 22) col = WHITE.concat(255);
-        if (dist(x, y, ex + 14, EY + 22) < 11) col = WHITE.concat(255);
+        if (dist(x, y, ex - 23, EY - 30) < 29) col = WHITE.concat(255);
+        if (dist(x, y, ex + 18, EY + 28) < 14) col = WHITE.concat(255);
       }
     }
 
     // mouth + tongue
-    if (se(x, y, BCX, 614, 22, 15, 2) < 1) col = MOUTH.concat(255);
-    if (se(x, y, BCX, 624, 15, 10, 2) < 1) col = TONGUE.concat(255);
-  } else if (bv < 1.12) {
+    if (se(x, y, BCX, 652, 29, 20, 2) < 1) col = MOUTH.concat(255);
+    if (se(x, y, BCX, 665, 20, 13, 2) < 1) col = TONGUE.concat(255);
+  } else if (bv < 1.06) {
     col = over(col, OUTLINE.concat(235));
   }
 
